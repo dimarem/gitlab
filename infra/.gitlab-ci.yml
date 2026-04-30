@@ -1,0 +1,81 @@
+stages:
+  - lint
+  - init
+  - validate
+  - plan
+  - apply
+
+image:
+  name: hashicorp/terraform:1.8
+  entrypoint: [""]
+
+variables:
+  # провайдер Яндекса автоматически прочитает файл по этому пути
+  # и предоставит клиенту terraform права на выполнение действий
+  # от имени созданного сервисного аккаунта
+  YC_SERVICE_ACCOUNT_KEY_FILE: /tmp/sa-key.json
+
+cache:
+  key: terraform-cache-${CI_COMMIT_REF_SLUG}
+  paths:
+    - .terraform/
+    - .terraform.lock.hcl
+
+before_script:
+  - echo ${YC_KEY} | base64 -d > /tmp/sa-key.json
+  - |
+    cat <<EOF >> ~/.terraformrc
+    provider_installation {
+      network_mirror {
+        url = "https://terraform-mirror.yandexcloud.net/"
+        include = ["registry.terraform.io/*/*"]
+      }
+      direct {
+        exclude = ["registry.terraform.io/*/*"]
+      }
+    }
+    EOF
+
+lint:checkov:
+  stage: lint
+  image:
+    name: bridgecrew/checkov
+    entrypoint: [""]
+  before_script: []
+  script:
+    - checkov -d .
+
+lint:tflint:
+  stage: lint
+  image:
+    name: ghcr.io/terraform-linters/tflint
+    entrypoint: [""]
+  before_script: []
+  script:
+    - tflint 
+
+init:
+  stage: init
+  script:
+    - terraform init
+
+validate:
+  stage: validate
+  script:
+    - terraform validate
+
+plan:
+  stage: plan
+  script:
+    - terraform plan -out=tfplan
+  artifacts:
+    paths:
+      - tfplan
+
+apply:
+  stage: apply
+  script:
+    - terraform apply -auto-approve tfplan
+  when: manual
+  only:
+    - main
